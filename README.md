@@ -18,3 +18,5 @@ make it new and flash the firmware on you Arduino238p
 
 As an example the code will transmit the humidity and temperature values
 from an DHT11 sensor as Comment via APRS
+
+APRS is a registered trademark of APRS Software and Bob Bruninga, WB4APR.
