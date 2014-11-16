@@ -22,6 +22,7 @@ long zeit_send,zeit_send_vergangen;
 int humi=0;
 int tempc=0;
 boolean firstfix=false;
+int battVolts,LiPoVolts;
 
 void setup()
 {
@@ -34,7 +35,6 @@ void setup()
 
 void loop()
 {
-
   int chk=1;
   if(chk = DSKY.read(5) == DHTLIB_OK)
   {
@@ -48,7 +48,16 @@ void loop()
     humi=0;
     tempc=0;
   }
+  battVolts=getBandgap();  //Determins what actual Vcc is, (X 100), based on known bandgap voltage
+  //connect VCC<->VREF an VCC from LiPo to A1
+  // attention VCC from LiPo must < VCC and max 5V
+  LiPoVolts=(map(analogRead(1), 0, 1023, 0, battVolts));
 
+  if(LiPoVolts < 307)
+  {
+    //buzzer alarm 
+  }
+  
   float flat=0, flon=0;
   smartdelay(5000);
 
@@ -84,18 +93,21 @@ void loop()
     //Serial.println(dist_send,6);
 
     zeit_send_vergangen=(int)(gps.time.value()-zeit_send)/100;
-
-    if(((int)dist_send > 1000) || (zeit_send_vergangen > 100)) //alle 2min senden oder 100m bewegt
+    //distan > 1Km or 2min time elabsed
+    if(((int)dist_send > 1000) || (zeit_send_vergangen > 120))
     {
       flat_send=flat;
       flon_send=flon;
       zeit_send=gps.time.value(); //ms Raw
-      delay(1000);
-      sprintf(logString,"!=%02d%02d.%02dN/%03d%02d.%02dE%s/%03d/%03d/A=%06d/C=%02d/H=%02d"
+
+      sprintf(logString,"!=%02d%02d.%02dN/%03d%02d.%02dE%s/%03d/%03d/A=%06d/C=%02d/H=%02d/VCC=%03d/LiPo=%03d"
         ,gpsdeg,gpsmin,gpss,gpsldeg,gpslmin,gpsls
         ,icon
         ,(int)gps.course.deg(),(int)gps.speed.kmph(),(int)gps.altitude.meters()
-        ,tempc,humi);
+        ,tempc,humi
+        ,battVolts
+        ,LiPoVolts);
+
       for (int repeat=0;repeat < 3;repeat++)
       {
         Serial.println(logString);
@@ -118,4 +130,35 @@ static void smartdelay(unsigned long ms)
   } 
   while (millis() - start < ms);
 }
+
+int getBandgap(void) // Returns actual value of Vcc (x 100)
+{
+#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+  // For mega boards
+  const long InternalReferenceVoltage = 1115L;  // Adjust this value to your boards specific internal BG voltage x1000
+  // REFS1 REFS0          --> 0 1, AVcc internal ref. -Selects AVcc reference
+  // MUX4 MUX3 MUX2 MUX1 MUX0  --> 11110 1.1V (VBG)         -Selects channel 30, bandgap voltage, to measure
+  ADMUX = (0<<REFS1) | (1<<REFS0) | (0<<ADLAR)| (0<<MUX5) | (1<<MUX4) | (1<<MUX3) | (1<<MUX2) | (1<<MUX1) | (0<<MUX0);
+
+#else
+  // For 168/328 boards
+  const long InternalReferenceVoltage = 1071L;  // Adjust this value to your boards specific internal BG voltage x1000
+  // REFS1 REFS0          --> 0 1, AVcc internal ref. -Selects AVcc external reference
+  // MUX3 MUX2 MUX1 MUX0  --> 1110 1.1V (VBG)         -Selects channel 14, bandgap voltage, to measure
+  ADMUX = (0<<REFS1) | (1<<REFS0) | (0<<ADLAR) | (1<<MUX3) | (1<<MUX2) | (1<<MUX1) | (0<<MUX0);
+
+#endif
+  delay(50);  // Let mux settle a little to get a more stable A/D conversion
+  // Start a conversion  
+  ADCSRA |= _BV( ADSC );
+  // Wait for it to complete
+  while( ( (ADCSRA & (1<<ADSC)) != 0 ) );
+  // Scale the value
+  int results = (((InternalReferenceVoltage * 1024L) / ADC) + 5L) / 10L; // calculates for straight line value 
+  return results;
+
+}
+
+
+
 
